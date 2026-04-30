@@ -1,0 +1,188 @@
+---
+title: "Figure 1B"
+author: "Kate McDaniel"
+output:
+  word_document: default
+  pdf_document:
+    fig_width: 4.6
+    fig_height: 6
+  html_document:
+    df_print: paged
+editor_options:
+  chunk_output_type: console
+always_allow_html: true
+---
+
+```{r setup, include=FALSE}
+#setwd()
+
+library(readxl)
+library(plotly)
+library(tidyverse)
+library(dplyr)
+library(rstatix)
+library(car)
+```
+
+## Setting up the data for analysis
+
+```{r, pulling in files, echo = FALSE}
+#pulling in files
+file.list <- c(dir(pattern = ".xlsx"))
+path <- paste0(getwd(), "/", file.list)
+sheet.name <- excel_sheets(path = path)
+
+data <- list()
+
+for (a in sheet.name) {
+    data <- c(data, list(read_excel(file.list, sheet = a, col_names = TRUE, trim_ws = TRUE)))
+}
+
+names(data) <- sheet.name
+
+for (a in names(data)){
+  data[[a]][,"Week"] <- as.numeric(a)
+  data[[a]] <- data[[a]][,c(6,1:5)]
+}
+
+head(data)
+
+```
+
+The code then normalizes the raw data to both actin and to DMSO to get the values for analysis.
+
+```{r, normalizing, echo=FALSE}
+#normalizing to actin
+for (b in 1:length(data)){
+  data[[b]][,"NormalizedToActin"] <- data[[b]][,"Fragment"] / data[[b]][,"Actin"]
+  data[[b]][,"NormalizedToActin"] <- data[[b]][,"NormalizedToActin"] * 100
+}
+
+#normalizing to DMSO? - this isn't the best way to do this code wise
+for (c in 1:length(data)){
+  for (d in 1:nrow(data[[c]])){
+    if (d%%2 == 0){
+      data[[c]][d,"NormalizedToBoth"] <- data[[c]][d,"NormalizedToActin"] / data[[c]][(d-1),"NormalizedToActin"]
+      data[[c]][d,"NormalizedToBoth"] <- data[[c]][d,"NormalizedToBoth"] * 100
+    }
+  }
+}
+
+#setting the DMSO values to 1 (come out as NA in the former)
+data <- lapply(data, function(x) replace(x, is.na(x), 100))
+
+#combining into one big
+combined <- Reduce(function(x,y) rbind(x,y), data)
+
+head(combined)
+
+#library(writexl)
+#write_xlsx(combined, "250811 Stats from R for 1AB.xlsx")
+```
+
+I then subset by fragment size - either FL or CTF to do the analyses separately.
+
+```{r, subsetting by fragment size, echo = FALSE}
+FL <- subset(combined, Size == "FL" & Construct == "NL3")
+CTF <- subset(combined, Size == "CTF" & Construct == "NL3")
+
+head(FL)
+head(CTF)
+```
+
+## Assumption Testing
+
+### Full-length
+
+
+```{r, stats, echo = FALSE}
+#testing for normality of residuals - creating basic model with lm and then getting the residuals with rstandard and then using shapiro wilkes test on that
+model <- lm(FL$NormalizedToBoth~FL$Condition)
+results <- shapiro.test(rstandard(model)) 
+results
+
+significant <- results$p.value >= 0.05
+print("Meets Normality?")
+print(significant)
+
+print("DMSO QQ Plot")
+test <- subset(FL, Condition == "DMSO")
+qqnorm(test$NormalizedToBoth, pch = 1)
+qqline(test$NormalizedToBoth)
+
+
+print("PMA QQ Plot")
+test <- subset(FL, Condition == "PMA")
+qqnorm(test$NormalizedToBoth, pch = 1)
+qqline(test$NormalizedToBoth)
+
+
+
+#testing for heterogeneity of variance
+FL$Condition <- factor(FL$Condition)
+results <- leveneTest(FL$NormalizedToBoth~FL$Condition, center = mean)
+results 
+
+significant <- results$`Pr(>F)` >= 0.05
+print("Meets Homogeneity of Variance?")
+print(significant[1])
+```
+
+
+
+Wilcox Rank Sum:
+
+```{r, echo = FALSE}
+wilcox.test(FL$NormalizedToBoth~FL$Condition, 
+            alternative = c("two.sided"),
+            exact = FALSE)
+
+#doing this to make graphs easier later to fit into already written code
+colnames <-c("Experiment", "Construct", "Section", "Condition", "Actin", "Fragment", "Over Actin", "Over DMSO")
+colnames(FL) <- colnames
+
+```
+
+### C-Terminal Fragments
+
+
+```{r, echo = FALSE}
+model <- lm(CTF$NormalizedToBoth~CTF$Condition)
+results <- shapiro.test(rstandard(model)) 
+results
+
+test <- subset(CTF, Condition == "DMSO")
+qqnorm(test$NormalizedToBoth, pch = 1)
+qqline(test$NormalizedToBoth)
+
+test <- subset(CTF, Condition == "PMA")
+qqnorm(test$NormalizedToBoth, pch = 1)
+qqline(test$NormalizedToBoth)
+
+significant <- results$p.value >= 0.05
+print("Meets Normality?")
+print(significant)
+
+#testing for heterogeneity of variance
+CTF$Condition <- factor(CTF$Condition)
+results <- leveneTest(CTF$NormalizedToBoth~CTF$Condition, center = mean)
+results 
+
+significant <- results$`Pr(>F)` >= 0.05
+print("Meets Homogeneity of Variance?")
+print(significant[1])
+
+```
+
+
+Wilcox Rank Sum:
+
+```{r, echo = FALSE}
+wilcox.test(CTF$NormalizedToBoth~CTF$Condition, 
+            alternative = c("two.sided"),
+            exact = FALSE)
+
+colnames(CTF) <- colnames
+
+```
+

@@ -1,0 +1,93 @@
+---
+title: "Figure 2B"
+author: "Kate McDaniel"
+output:
+  word_document: default
+  html_document: default
+editor_options:
+  chunk_output_type: console
+---
+
+#Load in data and get correct file for figure - 2B Neuron WB basic (-/+ glutamate)
+
+```{r, include=FALSE}
+#setwd("")
+
+library(readxl)
+library(plotly)
+library(tidyverse)
+library(dplyr)
+library(rstatix)
+```
+
+```{r, include = FALSE}
+file.list <- c(dir(pattern = ".xlsx"))
+path <- paste0(getwd(), "/", file.list)
+sheet.name <- excel_sheets(path = path)
+
+#initializing lists I'll need later so they don't get caught in the for loops that I write for them
+list.dfs <- list()
+
+
+#pulling all the files in 
+for (a in file.list){
+  for (i in sheet.name) {
+    #assign(paste0(i), read_excel(file.name, sheet = i, skip = 1, col_names = TRUE, trim_ws = TRUE))
+    list.dfs <- c(list.dfs, list(read_excel(a, sheet = i, skip = 0, col_names = TRUE, trim_ws = TRUE)))
+  }
+}
+
+names(list.dfs) <- sheet.name
+```
+
+
+#Here I am selecting just the FL data to run stats on.
+
+I'm going to run the stats on all three first to show Katherine
+
+```{r, stats preparation for FL, echo = FALSE}
+index <- "FL"
+include <- lapply(list.dfs, function(x) x[x$Section == index,])
+include <- bind_rows(include, .id = "Experiment")
+
+```
+
+Glutamate statistics
+```{r, stats preparation for FL - glutamate, echo = FALSE}
+##don't assumption test because I know normality and hetereogenetiy of variance are violated because I have DMSO = 100
+
+include.Glu <- subset(include, subset = Condition %in% c("-", "Glutamate"))
+
+
+wilcox.test(include.Glu$`Over DMSO` ~ include.Glu$Condition,
+            alternative = c("two.sided"),
+            exact = TRUE,
+            conf.level = 0.95)
+
+```
+
+
+#Here I am selecting just the ICD data to run stats on.
+I'm going to run the stats on all three first to show Katherine
+```{r, stats preparation for ICD, echo = FALSE}
+index <- "ICD"
+include <- lapply(list.dfs, function(x) x[x$Section == index,])
+include <- bind_rows(include, .id = "Experiment")
+
+```
+
+
+Glutamate statistics
+```{r, stats preparation for ICD - glutamate, echo = FALSE}
+##don't assumption test because I know normality and hetereogenetiy of variance are violated because I have DMSO = 100
+
+include.Glu <- subset(include, subset = Condition %in% c("-", "Glutamate"))
+
+
+wilcox.test(include.Glu$`Over DMSO` ~ include.Glu$Condition,
+            alternative = c("two.sided"),
+            exact = TRUE,
+            conf.level = 0.95)
+
+```
+

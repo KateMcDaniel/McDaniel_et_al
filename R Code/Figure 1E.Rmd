@@ -1,0 +1,321 @@
+---
+title: "Figure 1E"
+author: "Kate McDaniel"
+output:
+  word_document: default
+  pdf_document:
+    fig_width: 6
+    fig_height: 8
+editor_options:
+  chunk_output_type: console
+always_allow_html: true
+---
+# HeLa analysis with or without PMA (done by TD). 
+
+```{r setup, include = FALSE}
+#setwd()
+
+library(readxl)
+library(plotly)
+library(tidyverse)
+library(dplyr)
+library(rstatix)
+library(car)
+library(lme4)
+```
+
+```{r pulling in files, include = FALSE}
+file.list <- c(dir(pattern = ".xlsx"))
+
+#setting the conditions for pulling them in
+sheet.name <- c("Nuclear", "Cytoplasm")
+background <- c("E", "F", "G")
+
+#creating names for the dataframes that combine the sheetnames and the background
+names <- c(t(outer(background, sheet.name, FUN = paste)))
+
+#initializing lists I'll need later so they don't get caught in the for loops that I write for them
+list.dfs <- list()
+analysis.list <- list()
+
+#pulling all the files in 
+for (a in file.list){
+  for (i in sheet.name) {
+    list.dfs <- c(list.dfs, list(read_excel(a, sheet = i, skip = 1, col_names = TRUE, trim_ws = TRUE)))
+  }
+}
+
+#naming the dataframes in the list so I know what I'm working with
+names(list.dfs) <- names
+
+
+#selecting only the columns that I need to work with
+select.dfs <- lapply(list.dfs, subset, select = c("Label", "Area","IntDen"))
+
+```
+
+```{r calculating mean grey value, include = FALSE}
+#creating mean grey value column from area and integrated density
+select.dfs <- lapply(select.dfs, function(x) 
+               {x$MeanGreyValue <- x$IntDen / x$Area
+                return(x)}
+               )
+```
+
+```{r creating background measurements, include = FALSE}
+#removing the background
+for (i in 1:length(select.dfs)){
+  #subtracting the background for both the nucleus and the cytoplasm
+  for (row in 2:nrow(select.dfs[[i]])){
+    if ((toString(select.dfs[[i]][row,"Label"])) == (toString(select.dfs[[i]][row-1,"Label"]))){
+      select.dfs[[i]][row,"MinusBackground"] = as.numeric(select.dfs[[i]][row, "MeanGreyValue"] - select.dfs[[i]][row-1, "MeanGreyValue"])
+    }
+  }
+}
+
+#omitting the background rows because we no longer need them
+select.dfs <- lapply(select.dfs, na.omit)
+```
+
+```{r making big data frame, include = FALSE}
+#creating the condition labels
+num.condition <- c("1","2")
+background.edit <- background
+condition.labels <- c(t(outer(background.edit, num.condition, FUN = paste0)))
+
+for (i in 1:length(select.dfs)){
+  if ((i %% 2) == 0){
+    #creating the whole cell category to do further calculations with
+    select.dfs[[i]][,"WholeCell"] <- select.dfs[[i-1]][,"MinusBackground"] + select.dfs[[i]][, "MinusBackground"]
+    
+    #further calculations
+    nuc.cyto <- select.dfs[[i-1]][,"MinusBackground"] / select.dfs[[i]][, "MinusBackground"]
+    nuc.wc <- select.dfs[[i-1]][, "MinusBackground"] / select.dfs[[i]][,"WholeCell"]
+    
+    #creating the temporatry dataframe to then add to another analysis list of dataframes
+    temp.df <- data.frame(select.dfs[[i]][[1]], nuc.cyto, nuc.wc)
+
+    #adding the condition labels based on the file name analyzed ("Label")
+    for (i in 1:nrow(temp.df)) {
+      for (a in condition.labels){
+        if ((grepl(a, temp.df[i,1], fixed = TRUE)) == TRUE) {
+          temp.df$Key[i] <- a
+          }
+
+        }
+      }
+
+  temp.df <- temp.df[-c(1)]
+  temp.df <- temp.df[c(3,1,2)]
+  colnames(temp.df) <- c("Key", "Nuclear / Cytoplasm", "Nuclear / Whole Cell")
+  
+  #ordering alphabetically for those that had to get redone or are in a weird order
+  temp.df <- temp.df[order(temp.df[,1]),]
+  
+  #adding to analysis.list
+  analysis.list <- c(analysis.list, list(temp.df))
+  }
+}
+
+
+#naming the individual dataframes within the list
+names(analysis.list) <- background
+
+
+#can save this if you want
+#write_xlsx(analysis.list, "250626 All Analysis.xlsx")
+```
+
+```{r, adding in DMSO and combining, echo = FALSE}
+#renaming analysis list to list.dfs because I don't want to rewrite this code
+
+list.dfs <- analysis.list
+
+#adding DMSO vs. PMA
+for (b in 1:nrow(list.dfs[[3]])){
+  if((grepl("E1", list.dfs[[3]][b,"Key"], fixed = TRUE)) == TRUE){
+    list.dfs[[3]][b, "Treatment"] <- "DMSO"
+    }
+  else {
+    list.dfs[[3]][b, "Treatment"] <- "PMA"
+    }
+  }
+
+
+for (b in 1:nrow(list.dfs[[1]])){
+  if((grepl("F1", list.dfs[[1]][b,"Key"], fixed = TRUE)) == TRUE){
+    list.dfs[[1]][b, "Treatment"] <- "PMA"
+    }
+  else {
+    list.dfs[[1]][b, "Treatment"] <- "DMSO"
+    }
+  }
+
+
+for (b in 1:nrow(list.dfs[[2]])){
+  if((grepl("G1", list.dfs[[2]][b,"Key"], fixed = TRUE)) == TRUE){
+    list.dfs[[2]][b, "Treatment"] <- "PMA"
+    }
+  else {
+    list.dfs[[2]][b, "Treatment"] <- "DMSO"
+    }
+  }
+
+
+#combining into one dataframe
+combined.nuc <- Reduce(function(x,y) rbind(x,y), list.dfs)
+
+head(combined.nuc)
+```
+
+```{r setting the weeks, include = FALSE}
+combined.nuc$Week <- NA
+
+for (i in 1:nrow(combined.nuc)){
+  if (grepl("E", combined.nuc$Key[i], fixed = TRUE) == TRUE){
+    combined.nuc$Week[i] <- "E"
+  }
+    if (grepl("F", combined.nuc$Key[i], fixed = TRUE) == TRUE){
+    combined.nuc$Week[i] <- "F"
+    }
+    if (grepl("G", combined.nuc$Key[i], fixed = TRUE) == TRUE){
+    combined.nuc$Week[i] <- "G"
+  }
+}
+
+```
+
+```{r, subsetting the raw data, include = FALSE}
+cytoplasm <- combined.nuc[,c(1,4,5,2)]
+wholecell <- combined.nuc[,c(1,4,5,3)]
+
+#resetting the column names so I don't have to rewrite the rest of the code
+colnames(cytoplasm) <- c("Key", "Treatment", "Week", "Nuclear / Cytoplasm")
+colnames(wholecell) <- c("Key", "Treatment", "Week", "Nuclear / Whole Cell")
+
+#head(cytoplasm)
+#head(wholecell)
+
+```
+
+## 1 - Nuclear / Cytoplasm
+
+
+```{r, Nuc/Cytoplasm means assumption testing, echo = FALSE}
+#creating the means of the groups in each week and testing that way 
+cyto_mean <- cytoplasm %>% group_by(Treatment, Week) %>%
+  summarise(Mean = mean(`Nuclear / Cytoplasm`),
+            .groups = "drop")
+
+cyto_mean$Treatment <- factor(cyto_mean$Treatment, levels = c("DMSO", "PMA"))
+
+model <- lm(cyto_mean$`Mean` ~ cyto_mean$Treatment)
+results <- shapiro.test(rstandard(model)) 
+results
+
+print("DMSO QQ Plot")
+test <- subset(cyto_mean, Treatment == "DMSO")
+qqnorm(test$`Mean`, pch = 1)
+qqline(test$`Mean`)
+
+print("PMA QQ Plot")
+test <- subset(cyto_mean, Treatment == "PMA")
+qqnorm(test$`Mean`, pch = 1)
+qqline(test$`Mean`)
+
+significant <- results$p.value >= 0.05
+print("Meets Normality?")
+print(significant)
+
+#testing for heterogeneity of variance
+cyto_mean$Treatment <- factor(cyto_mean$Treatment)
+results <- leveneTest(cyto_mean$`Mean` ~ cyto_mean$Treatment, center = mean) 
+results 
+
+significant <- results$`Pr(>F)` >= 0.05
+print("Meets Homogeneity of Variance?")
+print(significant[1])
+```
+
+
+```{r, Nuc/Cytoplasm means significance testing, echo =FALSE}
+results <- t.test(cyto_mean$`Mean` ~ cyto_mean$Treatment,
+                  alternative = c("two.sided"),
+                  var.equal = TRUE, 
+                  conf.level = 0.95)
+
+results
+
+significant <- results$p.value < 0.05
+
+print("p-value = ")
+print(results$p.value)
+
+print("significant?")
+print(significant)
+
+colnames <- c("Key", "Condition", "Week", "Nuclear / Cytoplasm")
+colnames(cytoplasm) <- colnames
+```
+
+
+
+## 2 - Nuclear / Whole Cell
+
+```{r, nuc/whole cell means assupmtion testing, echo = FALSE}
+#creating the means of the groups in each week and testing that way 
+wc_mean <- wholecell %>% group_by(Treatment, Week) %>%
+  summarise(Mean = mean(`Nuclear / Whole Cell`),
+            .groups = "drop")
+
+wc_mean$Treatment <- factor(wc_mean$Treatment, levels = c("DMSO", "PMA"))
+
+model <- lm(wc_mean$`Mean` ~ wc_mean$Treatment)
+results <- shapiro.test(rstandard(model)) 
+results
+
+test <- subset(wc_mean, Treatment == "DMSO")
+qqnorm(test$`Mean`, pch = 1)
+qqline(test$`Mean`)
+
+
+test <- subset(wc_mean, Treatment == "PMA")
+qqnorm(test$`Mean`, pch = 1)
+qqline(test$`Mean`)
+
+
+significant <- results$p.value >= 0.05
+print("Meets Normality?")
+print(significant)
+
+#testing for heterogeneity of variance
+wc_mean$Treatment <- factor(wc_mean$Treatment)
+results <- leveneTest(wc_mean$`Mean` ~ wc_mean$Treatment, center = mean) 
+results 
+
+significant <- results$`Pr(>F)` >= 0.05
+print("Meets Homogeneity of Variance?")
+print(significant[1])
+```
+
+
+```{r, nuc/whole cell means significance testing, echo = FALSE}
+results <- t.test(wc_mean$`Mean` ~ wc_mean$Treatment,
+                  alternative = c("two.sided"),
+                  var.equal = TRUE, 
+                  conf.level = 0.95)
+
+results
+
+significant <- results$p.value < 0.05
+
+print("p-value = ")
+print(results$p.value)
+
+print("significant?")
+print(significant)
+
+colnames <- c("Key", "Condition", "Week", "Nuclear / Whole Cell")
+colnames(wholecell) <- colnames
+
+```

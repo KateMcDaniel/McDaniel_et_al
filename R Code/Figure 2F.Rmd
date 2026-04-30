@@ -1,0 +1,172 @@
+---
+title: "Figure 2F"
+author: "Kate McDaniel"
+output:
+  word_document: default
+  html_document: default
+editor_options:
+  chunk_output_type: console
+---
+## Setting up the data for analysis
+
+
+```{r, include=FALSE}
+#setwd("")
+
+library(readxl)
+library(plotly)
+library(tidyverse)
+library(dplyr)
+library(rstatix)
+library(car)
+library(DescTools)
+library(lme4)
+library(multcomp)
+
+```
+
+```{r, echo = FALSE}
+file.list <- c(dir(pattern = ".xlsx"))
+path <- paste0(getwd(), "/", file.list)
+sheet.name <- excel_sheets(path = path)
+
+#initializing lists I'll need later so they don't get caught in the for loops that I write for them
+list.dfs <- list()
+
+
+#pulling all the files in 
+for (a in file.list){
+  for (i in sheet.name) {
+    #assign(paste0(i), read_excel(file.name, sheet = i, skip = 1, col_names = TRUE, trim_ws = TRUE))
+    list.dfs <- c(list.dfs, list(read_excel(a, sheet = i, skip = 0, col_names = TRUE, trim_ws = TRUE)))
+  }
+}
+
+names(list.dfs) <- sheet.name
+
+```
+
+
+#Here I am selecting just the FL data to run stats on.
+
+
+
+```{r, stats preparation for FL, echo = FALSE}
+index <- "FL"
+include <- lapply(list.dfs, function(x) x[x$Section == index,])
+include <- bind_rows(include, .id = "Experiment")
+
+#assumptions
+model <- lm(include$`Over DMSO` ~ include$Condition)
+results <- shapiro.test(rstandard(model)) 
+results
+
+significant <- results$p.value >= 0.05
+print("Meets Normality?")
+print(significant)
+
+print("- QQ Plot")
+test <- subset(include, Condition == "-")
+qqnorm(test$`Over DMSO`, pch = 1)
+qqline(test$`Over DMSO`)
+
+print("DMSO QQ Plot")
+test <- subset(include, Condition == "DMSO")
+qqnorm(test$`Over DMSO`, pch = 1)
+qqline(test$`Over DMSO`)
+
+print("DAPT QQ Plot")
+test <- subset(include, Condition == "DAPT")
+qqnorm(test$`Over DMSO`, pch = 1)
+qqline(test$`Over DMSO`)
+
+print("Glutamate QQ Plot")
+test <- subset(include, Condition == "Glutamate")
+qqnorm(test$`Over DMSO`, pch = 1)
+qqline(test$`Over DMSO`)
+
+print("Glutamate + DAPT QQ Plot")
+test <- subset(include, Condition == "Glutamate + DAPT")
+qqnorm(test$`Over DMSO`, pch = 1)
+qqline(test$`Over DMSO`)
+
+#testing for heterogeneity of variance
+include$Condition<- factor(include$Condition)
+results <- leveneTest(include$`Over DMSO` ~ include$Condition, center = mean)
+results 
+
+significant <- results$`Pr(>F)` >= 0.05
+print("Meets Homogeneity of Variance?")
+print(significant[1])
+```
+
+
+```{r, significance testing for FL, echo = FALSE}
+kruskal.test(`Over DMSO` ~ Condition, data = include)
+DunnettTest(`Over DMSO` ~ Condition, data = include, control = "-")
+
+#for graphing later
+#full.length <- include
+```
+
+
+#Here I am selecting just the ICD data to run stats on.
+
+```{r, stats preparation for ICD, echo = FALSE}
+index <- "ICD"
+include <- lapply(list.dfs, function(x) x[x$Section == index,])
+include <- bind_rows(include, .id = "Experiment")
+
+#assumptions
+model <- lm(include$`Over DMSO` ~ include$Condition)
+results <- shapiro.test(rstandard(model)) 
+results
+
+significant <- results$p.value >= 0.05
+print("Meets Normality?")
+print(significant)
+
+print("- QQ Plot")
+test <- subset(include, Condition == "-")
+qqnorm(test$`Over DMSO`, pch = 1)
+qqline(test$`Over DMSO`)
+
+print("DMSO QQ Plot")
+test <- subset(include, Condition == "DMSO")
+qqnorm(test$`Over DMSO`, pch = 1)
+qqline(test$`Over DMSO`)
+
+print("DAPT QQ Plot")
+test <- subset(include, Condition == "DAPT")
+qqnorm(test$`Over DMSO`, pch = 1)
+qqline(test$`Over DMSO`)
+
+print("Glutamate QQ Plot")
+test <- subset(include, Condition == "Glutamate")
+qqnorm(test$`Over DMSO`, pch = 1)
+qqline(test$`Over DMSO`)
+
+print("Glutamate + DAPT QQ Plot")
+test <- subset(include, Condition == "Glutamate + DAPT")
+qqnorm(test$`Over DMSO`, pch = 1)
+qqline(test$`Over DMSO`)
+
+#testing for heterogeneity of variance
+include$Condition<- factor(include$Condition)
+results <- leveneTest(include$`Over DMSO` ~ include$Condition, center = mean)
+results 
+
+significant <- results$`Pr(>F)` >= 0.05
+print("Meets Homogeneity of Variance?")
+print(significant[1])
+```
+
+
+```{r, significance testing for ICD, echo = FALSE}
+kruskal.test(`Over DMSO` ~ Condition, data = include)
+DunnettTest(`Over DMSO` ~ Condition, data = include, control = "-")
+
+#for graphing later
+#CTF <- include
+```
+

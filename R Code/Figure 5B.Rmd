@@ -1,0 +1,108 @@
+---
+title: "Figure 5B"
+author: "Kate McDaniel"
+output:
+  word_document: default
+  html_document: default
+editor_options:
+  chunk_output_type: console
+---
+## Setting up the data for analysis
+
+```{r, include=FALSE}
+#setwd("")
+
+library(readxl)
+library(plotly)
+library(tidyverse)
+library(dplyr)
+library(rstatix)
+library(car)
+library(DescTools)
+
+```
+
+```{r, echo = FALSE}
+file.list <- c(dir(pattern = ".xlsx"))
+path <- paste0(getwd(), "/", file.list)
+sheet.name <- excel_sheets(path = path)
+
+#initializing lists I'll need later so they don't get caught in the for loops that I write for them
+list.dfs <- list()
+
+
+#pulling all the files in 
+for (a in file.list){
+  for (i in sheet.name) {
+    #assign(paste0(i), read_excel(file.name, sheet = i, skip = 1, col_names = TRUE, trim_ws = TRUE))
+    list.dfs <- c(list.dfs, list(read_excel(a, sheet = i, skip = 0, col_names = TRUE, trim_ws = TRUE)))
+  }
+}
+
+names(list.dfs) <- sheet.name
+```
+
+```{r, stats preparation for data, echo = FALSE}
+include <- bind_rows(list.dfs, .id = "Experiment")
+```
+
+
+```{r, assumption testing, echo = FALSE}
+#assumptions
+model <- lm(include$`2^-∆∆CT` ~ include$Sample)
+results <- shapiro.test(rstandard(model)) 
+results
+
+significant <- results$p.value >= 0.05
+print("Meets Normality?")
+print(significant)
+
+print("NT QQ Plot")
+test <- subset(include, Sample == "NT")
+qqnorm(test$`2^-∆∆CT`, pch = 1)
+qqline(test$`2^-∆∆CT`)
+
+print("FL QQ Plot")
+test <- subset(include, Sample == "FL")
+qqnorm(test$`2^-∆∆CT`, pch = 1)
+qqline(test$`2^-∆∆CT`)
+
+print("∆ICD QQ Plot")
+test <- subset(include, Sample == "NL3 ∆ICD")
+qqnorm(test$`2^-∆∆CT`, pch = 1)
+qqline(test$`2^-∆∆CT`)
+
+print("ICD QQ Plot")
+test <- subset(include, Sample == "NL3 ICD")
+qqnorm(test$`2^-∆∆CT`, pch = 1)
+qqline(test$`2^-∆∆CT`)
+
+#testing for heterogeneity of variance
+include$Sample<- factor(include$Sample)
+results <- leveneTest(include$`2^-∆∆CT` ~ include$Sample, center = mean)
+results 
+
+significant <- results$`Pr(>F)` >= 0.05
+print("Meets Homogeneity of Variance?")
+print(significant[1])
+```
+
+
+```{r, significance testing, echo = FALSE}
+kruskal.test(`2^-∆∆CT` ~ Sample, data = include)
+
+multi.results <- dunn_test(include, formula = `2^-∆∆CT` ~ Sample, p.adjust.method = "bonferroni", detailed = TRUE)
+multi.results
+
+multi.sub <- multi.results[,c(2,3,12)]
+
+multi.sig <- multi.sub$p.adj < 0.05
+
+print("p-value =")
+print(multi.sub)
+
+multi.sub <- cbind(multi.sub, multi.sig)
+
+print("significant?")
+print(multi.sub[,c(1,2,4)])
+```

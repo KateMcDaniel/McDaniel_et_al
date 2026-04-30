@@ -1,0 +1,494 @@
+---
+title: "Figure 3C and 3F"
+author: "Kate McDaniel"
+output:
+  word_document: default
+  pdf_document:
+    fig_width: 4.6
+    fig_height: 6
+editor_options:
+  chunk_output_type: console
+always_allow_html: true
+---
+
+# HeLa analysis with truncations (done by me).
+
+
+Set up:
+```{r setup, include = FALSE} 
+#setwd("")
+
+library(readxl)
+library(plotly)
+library(tidyverse)
+library(dplyr)
+library(rstatix)
+library(car)
+library(lme4)
+library(multcomp)
+library(DescTools)
+
+```
+
+All files in list of dataframes with the proper names
+```{r pulling in files, include = FALSE}
+#pulling in file list and writing the conditions (nuclear and cytoplasm) and the data for the blinded labels (A and B)
+file.list <- c(dir(pattern = ".xlsx"))
+sheet.name <- c("Nuclear", "Cytoplasm")
+background <- c("A","B","H","J","X","Z")
+
+#creating names for the dataframes that combine the sheetnames and the background
+names <- c(t(outer(background, sheet.name, FUN = paste)))
+
+#initializing lists I'll need later so they don't get caught in the for loops that I write for them
+list.dfs <- list()
+analysis.list <- list()
+
+#pulling all the files in 
+for (a in file.list){
+  for (i in sheet.name) {
+    #assign(paste0(i), read_excel(file.name, sheet = i, skip = 1, col_names = TRUE, trim_ws = TRUE))
+    list.dfs <- c(list.dfs, list(read_excel(a, sheet = i, skip = 1, col_names = TRUE, trim_ws = TRUE)))
+  }
+}
+
+#naming the dataframes in the list so I know what I'm working with
+names(list.dfs) <- names
+
+#selecting only the columns that I need to work with
+select.dfs <- lapply(list.dfs, subset, select = c("Label", "Area", "IntDen"))
+```
+
+```{r calculating mean grey value, include = FALSE}
+#creating mean grey value column from area and integrated density
+select.dfs <- lapply(select.dfs, function(x) 
+               {x$MeanGreyValue <- x$IntDen / x$Area
+                return(x)}
+               )
+```
+
+```{r creating background measurements, include = FALSE}
+#removing the background
+for (i in 1:length(select.dfs)){
+  #subtracting the background for both the nucleus and the cytoplasm
+  for (row in 2:nrow(select.dfs[[i]])){
+    if ((toString(select.dfs[[i]][row,"Label"])) == (toString(select.dfs[[i]][row-1,"Label"]))){
+      select.dfs[[i]][row,"MinusBackground"] = as.numeric(select.dfs[[i]][row, "MeanGreyValue"] - select.dfs[[i]][row-1, "MeanGreyValue"])
+    }
+  }
+}
+
+#omitting the background rows because we no longer need them
+select.dfs <- lapply(select.dfs, na.omit)
+```
+
+
+```{r making big data frame, include = FALSE}
+#creating the condition labels
+num.condition <- c("1","2","3")
+background.edit <- c("A","B","H","J","J","K")
+condition.labels <- c(t(outer(background.edit, num.condition, FUN = paste0)))
+
+for (i in 1:length(select.dfs)){
+  if ((i %% 2) == 0){
+    #creating the whole cell category to do further calculations with
+    select.dfs[[i]][,"WholeCell"] <- select.dfs[[i-1]][,"MinusBackground"] + select.dfs[[i]][, "MinusBackground"]
+    
+    #further calculations
+    nuc.cyto <- select.dfs[[i-1]][,"MinusBackground"] / select.dfs[[i]][, "MinusBackground"]
+    nuc.wc <- select.dfs[[i-1]][, "MinusBackground"] / select.dfs[[i]][,"WholeCell"]
+    
+    #creating the temporatry dataframe to then add to another analysis list of dataframes
+    temp.df <- data.frame(select.dfs[[i]][[1]], nuc.cyto, nuc.wc)
+
+    #adding the condition labels based on the file name analyzed ("Label")
+    for (i in 1:nrow(temp.df)) {
+      for (a in condition.labels){
+        if ((grepl(a, temp.df[i,1], fixed = TRUE)) == TRUE) {
+          temp.df$Key[i] <- a
+          }
+
+        }
+      }
+
+  temp.df <- temp.df[-c(1)]
+  temp.df <- temp.df[c(3,1,2)]
+  colnames(temp.df) <- c("Key", "Nuclear / Cytoplasm", "Nuclear / Whole Cell")
+  
+  #ordering alphabetically for those that had to get redone or are in a weird order
+  temp.df <- temp.df[order(temp.df[,1]),]
+  
+  #adding to analysis.list
+  analysis.list <- c(analysis.list, list(temp.df))
+  }
+}
+
+
+#naming the individual dataframes within the list
+names(analysis.list) <- background
+
+for (i in 1:nrow(analysis.list[[5]])){
+  analysis.list[[5]][[1]][[i]] <- gsub("^.", names(analysis.list[5]), analysis.list[[5]][[1]][[i]]) 
+}
+
+
+for (i in 1:nrow(analysis.list[[6]])){
+  analysis.list[[6]][[1]][[i]] <- gsub("^.", names(analysis.list[6]), analysis.list[[6]][[1]][[i]]) 
+}
+```
+
+
+
+```{r, adding in condition and combining, include = FALSE}
+#adding FL or TMD or ICD - this has to be hard coded based on blinding
+for (b in 1:nrow(analysis.list[[1]])){
+  if((grepl("A1", analysis.list[[1]][b, "Key"], fixed = TRUE)) == TRUE){
+    analysis.list[[1]][b, "Treatment"] <- "FL"
+    }
+  else if((grepl("A2", analysis.list[[1]][b,"Key"], fixed = TRUE)) == TRUE){
+    analysis.list[[1]][b, "Treatment"] <- "ICD"
+    }
+  else{
+    analysis.list[[1]][b, "Treatment"] <- "TMD"
+    }
+  }
+
+
+for (b in 1:nrow(analysis.list[[2]])){
+  if((grepl("B3", analysis.list[[2]][b, "Key"], fixed = TRUE)) == TRUE){
+    analysis.list[[2]][b, "Treatment"] <- "FL"
+    }
+  else if((grepl("B1", analysis.list[[2]][b,"Key"], fixed = TRUE)) == TRUE){
+    analysis.list[[2]][b, "Treatment"] <- "ICD"
+    }
+  else{
+    analysis.list[[2]][b, "Treatment"] <- "TMD"
+    }
+  }
+
+for (b in 1:nrow(analysis.list[[3]])){
+  if((grepl("H1", analysis.list[[3]][b, "Key"], fixed = TRUE)) == TRUE){
+    analysis.list[[3]][b, "Treatment"] <- "FL"
+    }
+  else if((grepl("H3", analysis.list[[3]][b,"Key"], fixed = TRUE)) == TRUE){
+    analysis.list[[3]][b, "Treatment"] <- "ICD"
+    }
+  else{
+    analysis.list[[3]][b, "Treatment"] <- "TMD"
+    }
+}
+
+for (b in 1:nrow(analysis.list[[4]])){
+  if((grepl("J3", analysis.list[[4]][b, "Key"], fixed = TRUE)) == TRUE){
+    analysis.list[[4]][b, "Treatment"] <- "FL"
+    }
+  else if((grepl("J2", analysis.list[[4]][b,"Key"], fixed = TRUE)) == TRUE){
+    analysis.list[[4]][b, "Treatment"] <- "ICD"
+    }
+  else{
+    analysis.list[[4]][b, "Treatment"] <- "TMD"
+    }
+}
+
+for (b in 1:nrow(analysis.list[[5]])){
+  if((grepl("X2", analysis.list[[5]][b, "Key"], fixed = TRUE)) == TRUE){
+    analysis.list[[5]][b, "Treatment"] <- "FL"
+    }
+  else if((grepl("X1", analysis.list[[5]][b,"Key"], fixed = TRUE)) == TRUE){
+    analysis.list[[5]][b, "Treatment"] <- "ICD"
+    }
+  else{
+    analysis.list[[5]][b, "Treatment"] <- "TMD"
+    }
+}
+
+for (b in 1:nrow(analysis.list[[6]])){
+  if((grepl("Z2", analysis.list[[6]][b, "Key"], fixed = TRUE)) == TRUE){
+    analysis.list[[6]][b, "Treatment"] <- "FL"
+    }
+  else if((grepl("Z3", analysis.list[[6]][b,"Key"], fixed = TRUE)) == TRUE){
+    analysis.list[[6]][b, "Treatment"] <- "ICD"
+    }
+  else{
+    analysis.list[[6]][b, "Treatment"] <- "TMD"
+    }
+  }
+
+#combining into one dataframe
+combined.Notch <- Reduce(function(x,y) rbind(x,y), analysis.list[c(1,4,6)])
+combined.NLGN3 <- Reduce(function(x,y) rbind(x,y), analysis.list[c(2,3,5)])
+
+#write_xlsx(combined.Notch, "filename")
+#write_xlsx(combined.NLGN3, "filename")
+
+```
+
+
+##Stats
+
+###First for Notch
+
+```{r, Notch coding in the weeks, include = FALSE}
+combined.Notch$Week <- NA
+
+for (i in 1:nrow(combined.Notch)){
+  if (grepl("A", combined.Notch$Key[i], fixed = TRUE) == TRUE){
+    combined.Notch$Week[i] <- "A"
+  }
+    if (grepl("J", combined.Notch$Key[i], fixed = TRUE) == TRUE){
+    combined.Notch$Week[i] <- "J"
+  }
+    if (grepl("Z", combined.Notch$Key[i], fixed = TRUE) == TRUE){
+    combined.Notch$Week[i] <- "Z"
+  }
+}
+```
+
+#####Means for Nuc/Cytoplasm
+
+```{r, nuc/cytoplasm mean assumption testing, echo = FALSE}
+#creating the means of the groups in each week and testing that way 
+cyto_mean <-combined.Notch %>% group_by(Week, Treatment) %>%
+  summarise(Mean = mean(`Nuclear / Cytoplasm`),
+            .groups = "drop")
+
+model <- lm(cyto_mean$`Mean` ~ cyto_mean$Treatment)
+results <- shapiro.test(rstandard(model)) 
+results
+
+test <- subset(cyto_mean, Treatment == "FL")
+qqnorm(test$`Mean`, pch = 1)
+qqline(test$`Mean`)
+
+test <- subset(cyto_mean, Treatment == "TMD")
+qqnorm(test$`Mean`, pch = 1)
+qqline(test$`Mean`)
+
+test <- subset(cyto_mean, Treatment == "ICD")
+qqnorm(test$`Mean`, pch = 1)
+qqline(test$`Mean`)
+
+
+significant <- results$p.value >= 0.05
+print("Meets Normality?")
+print(significant)
+
+#testing for heterogeneity of variance
+cyto_mean$Treatment <- factor(cyto_mean$Treatment)
+results <- leveneTest(cyto_mean$`Mean` ~ cyto_mean$Treatment, center = mean) 
+results 
+
+significant <- results$`Pr(>F)` >= 0.05
+print("Meets Homogeneity of Variance?")
+print(significant[1])
+```
+
+```{r, notch Cytoplasm Stats - One Way ANOVA significance testing, echo = FALSE}
+results <- aov(`Mean` ~ Treatment,
+  data = cyto_mean
+)
+
+summary(results)
+
+comp <- rbind("FL - TMD" = c(-1,1,0),
+              "FL - ICD" = c(-1,0,1),
+              "TMD - ICD" = c(0,-1,1))
+
+summary(glht(results, linfct= mcp(Treatment = comp)),
+        test = adjusted("single-step"))
+```
+
+#####Means for Nuc/Whole Cell
+
+```{r, nuc/cytoplasm mean assumption testing notch, echo = FALSE}
+#creating the means of the groups in each week and testing that way 
+wc_mean <-combined.Notch %>% group_by(Week, Treatment) %>%
+  summarise(Mean = mean(`Nuclear / Whole Cell`),
+            .groups = "drop")
+
+model <- lm(wc_mean$`Mean` ~ wc_mean$Treatment)
+results <- shapiro.test(rstandard(model)) 
+results
+
+test <- subset(wc_mean, Treatment == "FL")
+qqnorm(test$`Mean`, pch = 1)
+qqline(test$`Mean`)
+
+test <- subset(wc_mean, Treatment == "TMD")
+qqnorm(test$`Mean`, pch = 1)
+qqline(test$`Mean`)
+
+test <- subset(wc_mean, Treatment == "ICD")
+qqnorm(test$`Mean`, pch = 1)
+qqline(test$`Mean`)
+
+
+significant <- results$p.value >= 0.05
+print("Meets Normality?")
+print(significant)
+
+#testing for heterogeneity of variance
+wc_mean$Treatment <- factor(wc_mean$Treatment)
+results <- leveneTest(wc_mean$`Mean` ~ wc_mean$Treatment, center = mean) 
+results 
+
+significant <- results$`Pr(>F)` >= 0.05
+print("Meets Homogeneity of Variance?")
+print(significant[1])
+```
+
+
+```{r, notch Whole Cell Stats - One Way ANOVA significance testing, echo = FALSE}
+results <- aov(`Mean` ~ Treatment,
+  data = wc_mean
+)
+
+summary(results)
+
+comp <- rbind("FL - TMD" = c(-1,1,0),
+              "FL - ICD" = c(-1,0,1),
+              "TMD - ICD" = c(0,-1,1))
+
+summary(glht(results, linfct= mcp(Treatment = comp)),
+        test = adjusted("single-step"))
+```
+
+
+
+
+##Stats
+
+###NLGN3
+
+
+```{r, adding in the weeks as a variable nlgn3, include = FALSE}
+combined.NLGN3$Week <- NA
+
+for (i in 1:nrow(combined.NLGN3)){
+  if (grepl("B", combined.NLGN3$Key[i], fixed = TRUE) == TRUE){
+    combined.NLGN3$Week[i] <- "B"
+  }
+    if (grepl("H", combined.NLGN3$Key[i], fixed = TRUE) == TRUE){
+    combined.NLGN3$Week[i] <- "H"
+    }
+    if (grepl("X", combined.NLGN3$Key[i], fixed = TRUE) == TRUE){
+    combined.NLGN3$Week[i] <- "X"
+  }
+}
+```
+
+#####Means for Nuclear / Cytoplasm
+
+```{r, nuc/cytoplasm mean assumption testing nlgn3, echo = FALSE}
+#creating the means of the groups in each week and testing that way
+cyto_mean <-combined.NLGN3 %>% group_by(Week, Treatment) %>%
+  summarise(Mean = mean(`Nuclear / Cytoplasm`),
+            .groups = "drop")
+
+model <- lm(cyto_mean$`Mean` ~ cyto_mean$Treatment)
+results <- shapiro.test(rstandard(model)) 
+results
+
+test <- subset(cyto_mean, Treatment == "FL")
+qqnorm(test$`Mean`, pch = 1)
+qqline(test$`Mean`)
+
+test <- subset(cyto_mean, Treatment == "TMD")
+qqnorm(test$`Mean`, pch = 1)
+qqline(test$`Mean`)
+
+test <- subset(cyto_mean, Treatment == "ICD")
+qqnorm(test$`Mean`, pch = 1)
+qqline(test$`Mean`)
+
+
+significant <- results$p.value >= 0.05
+print("Meets Normality?")
+print(significant)
+
+#testing for heterogeneity of variance
+cyto_mean$Treatment <- factor(cyto_mean$Treatment)
+results <- leveneTest(cyto_mean$`Mean` ~ cyto_mean$Treatment, center = mean) 
+results 
+
+significant <- results$`Pr(>F)` >= 0.05
+print("Meets Homogeneity of Variance?")
+print(significant[1])
+```
+
+
+```{r, nlgn3 Cytoplasm Stats - One Way ANOVA significance testing, echo = FALSE}
+results <- aov(`Mean` ~ Treatment,
+  data = cyto_mean
+)
+
+summary(results)
+
+comp <- rbind("FL - TMD" = c(-1,1,0),
+              "FL - ICD" = c(-1,0,1),
+              "TMD - ICD" = c(0,-1,1))
+
+summary(glht(results, linfct= mcp(Treatment = comp)),
+        test = adjusted("single-step"))
+```
+
+
+#####Means for Nuc/Whole Cell
+
+```{r, nuc/whole cell mean assumption testing nlgn3, echo = FALSE}
+#creating the means of the groups in each week and testing that way 
+wc_mean <-combined.NLGN3 %>% group_by(Week, Treatment) %>%
+  summarise(Mean = mean(`Nuclear / Whole Cell`),
+            .groups = "drop")
+
+model <- lm(wc_mean$`Mean` ~ wc_mean$Treatment)
+results <- shapiro.test(rstandard(model)) 
+results
+
+test <- subset(wc_mean, Treatment == "FL")
+qqnorm(test$`Mean`, pch = 1)
+qqline(test$`Mean`)
+
+test <- subset(wc_mean, Treatment == "TMD")
+qqnorm(test$`Mean`, pch = 1)
+qqline(test$`Mean`)
+
+test <- subset(wc_mean, Treatment == "ICD")
+qqnorm(test$`Mean`, pch = 1)
+qqline(test$`Mean`)
+
+
+significant <- results$p.value >= 0.05
+print("Meets Normality?")
+print(significant)
+
+#testing for heterogeneity of variance
+wc_mean$Treatment <- factor(wc_mean$Treatment)
+results <- leveneTest(wc_mean$`Mean` ~ wc_mean$Treatment, center = mean) 
+results 
+
+significant <- results$`Pr(>F)` >= 0.05
+print("Meets Homogeneity of Variance?")
+print(significant[1])
+```
+
+
+```{r, Whole Cell Stats - mean nlgn3 , echo = FALSE}
+results <- aov(`Mean` ~ Treatment,
+  data = wc_mean
+)
+
+summary(results)
+
+comp <- rbind("FL - TMD" = c(-1,1,0),
+              "FL - ICD" = c(-1,0,1),
+              "TMD - ICD" = c(0,-1,1))
+
+summary(glht(results, linfct= mcp(Treatment = comp)),
+        test = adjusted("single-step"))
+```
+
+
+
+
+

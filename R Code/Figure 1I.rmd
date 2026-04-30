@@ -1,0 +1,354 @@
+---
+title: "Figure 1I"
+author: "Kate McDaniel"
+output:
+  word_document: default
+  pdf_document:
+    fig_width: 6
+    fig_height: 8
+editor_options:
+  chunk_output_type: console
+always_allow_html: true
+---
+## HeLa Analysis with DAPT
+
+Set up:
+```{r setup, include=FALSE} 
+#setwd()
+
+library(readxl)
+library(plotly)
+library(tidyverse)
+library(dplyr)
+library(rstatix)
+library(car)
+library(lme4)
+library(multcomp)
+library(DescTools)
+```
+
+
+All files in list of dataframes with the proper names
+
+```{r, include = FALSE}
+#pulling in file list and writing the conditions (nuclear and cytoplasm) and the data for the blinded labels (A and B)
+file.list <- c(dir(pattern = ".xlsx"))
+
+#setting the conditions for pulling them in
+sheet.name <- c("Nuclear", "Cytoplasm")
+background <- c("A", "B", "C")
+
+#creating names for the dataframes that combine the sheetnames and the background
+names <- c(t(outer(background, sheet.name, FUN = paste)))
+
+#initializing lists I'll need later so they don't get caught in the for loops that I write for them
+list.dfs <- list()
+analysis.list <- list()
+
+#pulling all the files in 
+for (a in file.list){
+  for (i in sheet.name) {
+    #assign(paste0(i), read_excel(file.name, sheet = i, skip = 1, col_names = TRUE, trim_ws = TRUE))
+    list.dfs <- c(list.dfs, list(read_excel(a, sheet = i, skip = 1, col_names = TRUE, trim_ws = TRUE)))
+  }
+}
+
+#naming the dataframes in the list so I know what I'm working with
+names(list.dfs) <- names
+
+#selecting only the columns that I need to work with - excluding surface and intra right now
+select.dfs <- lapply(list.dfs, subset, select = c("Label", "Mean"))
+```
+
+```{r creating background measurements, include = FALSE}
+#subtracting the background for both the nucleus and the cytoplasm
+for (i in 1:length(select.dfs)){
+  for (row in 2:nrow(select.dfs[[i]])){
+    if ((row %% 2) == 0){
+      select.dfs[[i]][row,"MinusBackground"] = as.numeric(select.dfs[[i]][row, "Mean"] - select.dfs[[i]][row-1, "Mean"])
+    }
+  }
+}
+
+#omitting the background rows because we no longer need them
+select.dfs <- lapply(select.dfs, na.omit)
+```
+
+```{r making big data frame, include = FALSE}
+#creating the condition labels
+num.condition <- c("1","2","3", "4", "5")
+background.edit <- c("A", "B", "_C")
+condition.labels <- c(t(outer(background.edit, num.condition, FUN = paste0)))
+
+for (i in 1:length(select.dfs)){
+  if ((i %% 2) == 0){
+    #creating the whole cell category to do further calculations with
+    select.dfs[[i]][,"WholeCell"] <- select.dfs[[i-1]][,"MinusBackground"] + select.dfs[[i]][, "MinusBackground"]
+    
+    #further calculations
+    nuc.cyto <- select.dfs[[i-1]][,"MinusBackground"] / select.dfs[[i]][, "MinusBackground"]
+    nuc.wc <- select.dfs[[i-1]][, "MinusBackground"] / select.dfs[[i]][,"WholeCell"]
+    
+    #creating the temporary dataframe to then add to another analysis list of dataframes
+    temp.df <- data.frame(select.dfs[[i]][[1]], nuc.cyto, nuc.wc)
+
+    #adding the condition labels based on the file name analyized ("Label")
+    for (i in 1:nrow(temp.df)) {
+      for (a in condition.labels){
+        if ((grepl(a, temp.df[i,1], fixed = TRUE)) == TRUE) {
+          temp.df$Key[i] <- a
+          }
+
+        }
+      }
+
+  temp.df <- temp.df[-c(1)]
+  temp.df <- temp.df[c(3,1,2)]
+  colnames(temp.df) <- c("Key", "Nuclear / Cytoplasm", "Nuclear / Whole Cell")
+  
+  #ordering alphabetically for those that had to get redone or are in a weird order
+  temp.df <- temp.df[order(temp.df[,1]),]
+  
+  #adding to analysis.list
+  analysis.list <- c(analysis.list, list(temp.df))
+  }
+}
+
+
+#naming the individual dataframes within the list
+names(analysis.list) <- background
+```
+
+```{r, adding in DMSO and combining, echo = FALSE}
+#renaming analysis list to list.dfs because I don't want to rewrite this code
+
+list.dfs <- analysis.list
+
+#adding conditions
+for (b in 1:nrow(list.dfs[[1]])){
+  if((grepl("A1", list.dfs[[1]][b,"Key"], fixed = TRUE)) == TRUE){
+    list.dfs[[1]][b, "Condition"] <- "DAPT"
+    }
+  else if((grepl("A2", list.dfs[[1]][b,"Key"], fixed = TRUE)) == TRUE){
+    list.dfs[[1]][b, "Condition"] <- "mScar"
+  }
+  else if((grepl("A3", list.dfs[[1]][b,"Key"], fixed = TRUE)) == TRUE){
+    list.dfs[[1]][b, "Condition"] <- "PMA"
+  }
+  else if((grepl("A4", list.dfs[[1]][b,"Key"], fixed = TRUE)) == TRUE){
+    list.dfs[[1]][b, "Condition"] <- "DMSO"
+  }
+  else {
+    list.dfs[[1]][b, "Condition"] <- "PMA+DAPT"
+  }
+}
+
+for (b in 1:nrow(list.dfs[[2]])){
+  if((grepl("B1", list.dfs[[2]][b,"Key"], fixed = TRUE)) == TRUE){
+    list.dfs[[2]][b, "Condition"] <- "PMA+DAPT"
+    }
+  else if((grepl("B2", list.dfs[[2]][b,"Key"], fixed = TRUE)) == TRUE){
+    list.dfs[[2]][b, "Condition"] <- "mScar"
+  }
+  else if((grepl("B3", list.dfs[[2]][b,"Key"], fixed = TRUE)) == TRUE){
+    list.dfs[[2]][b, "Condition"] <- "DAPT"
+  }
+  else if((grepl("B4", list.dfs[[2]][b,"Key"], fixed = TRUE)) == TRUE){
+    list.dfs[[2]][b, "Condition"] <- "PMA"
+  }
+  else {
+    list.dfs[[2]][b, "Condition"] <- "DMSO"
+  }
+}
+
+
+for (b in 1:nrow(list.dfs[[3]])){
+  if((grepl("C1", list.dfs[[3]][b,"Key"], fixed = TRUE)) == TRUE){
+    list.dfs[[3]][b, "Condition"] <- "DMSO"
+    }
+  else if((grepl("C2", list.dfs[[3]][b,"Key"], fixed = TRUE)) == TRUE){
+    list.dfs[[3]][b, "Condition"] <- "DAPT"
+  }
+  else if((grepl("C3", list.dfs[[3]][b,"Key"], fixed = TRUE)) == TRUE){
+    list.dfs[[3]][b, "Condition"] <- "mScar"
+  }
+  else if((grepl("C4", list.dfs[[3]][b,"Key"], fixed = TRUE)) == TRUE){
+    list.dfs[[3]][b, "Condition"] <- "PMA"
+  }
+  else {
+    list.dfs[[3]][b, "Condition"] <- "PMA+DAPT"
+  }
+}
+
+#combining into one dataframe
+combined.nuc <- Reduce(function(x,y) rbind(x,y), list.dfs)
+
+head(combined.nuc)
+
+```
+
+```{r setting the weeks, include = FALSE}
+combined.nuc$Week <- NA
+
+for (i in 1:nrow(combined.nuc)){
+  if (grepl("A", combined.nuc$Key[i], fixed = TRUE) == TRUE){
+    combined.nuc$Week[i] <- "A"
+  }
+    if (grepl("B", combined.nuc$Key[i], fixed = TRUE) == TRUE){
+    combined.nuc$Week[i] <- "B"
+    }
+    if (grepl("C", combined.nuc$Key[i], fixed = TRUE) == TRUE){
+    combined.nuc$Week[i] <- "C"
+  }
+}
+
+```
+
+```{r, subsetting the raw data, echo= FALSE}
+cytoplasm <- combined.nuc[,c(1,4,5,2)]
+wholecell <- combined.nuc[,c(1,4,5,3)]
+
+#head(cytoplasm)
+#head(wholecell)
+
+#removing mScar only condition because it's the fully negative control and I'm not actually measuring anything in that channel but background
+cytoplasm <- cytoplasm[!(cytoplasm$Condition %in% "mScar"),]
+wholecell <- wholecell[!(wholecell$Condition %in% "mScar"),]
+
+head(cytoplasm)
+head(wholecell)
+
+```
+
+#Stats for Nuclear / Cytoplasm
+
+##Nuclear / Cytoplasm Means
+
+```{r, nuc/cytoplasm mean assumption testing, echo = FALSE}
+#creating the means of the groups in each week and testing that way 
+cyto_mean <-cytoplasm %>% group_by(Week, Condition) %>%
+  summarise(Mean = mean(`Nuclear / Cytoplasm`),
+            .groups = "drop")
+
+model <- lm(cyto_mean$`Mean` ~ cyto_mean$Condition)
+results <- shapiro.test(rstandard(model)) 
+results
+
+test <- subset(cyto_mean, Condition == "DMSO")
+qqnorm(test$`Mean`, pch = 1)
+qqline(test$`Mean`)
+
+test <- subset(cyto_mean, Condition == "DAPT")
+qqnorm(test$`Mean`, pch = 1)
+qqline(test$`Mean`)
+
+test <- subset(cyto_mean, Condition == "PMA")
+qqnorm(test$`Mean`, pch = 1)
+qqline(test$`Mean`)
+
+test <- subset(cyto_mean, Condition == "PMA+DAPT")
+qqnorm(test$`Mean`, pch = 1)
+qqline(test$`Mean`)
+
+significant <- results$p.value >= 0.05
+print("Meets Normality?")
+print(significant)
+
+#testing for heterogeneity of variance
+cyto_mean$Condition <- factor(cyto_mean$Condition)
+results <- leveneTest(cyto_mean$`Mean` ~ cyto_mean$Condition, center = mean) 
+results 
+
+significant <- results$`Pr(>F)` >= 0.05
+print("Meets Homogeneity of Variance?")
+print(significant[1])
+```
+
+
+```{r, Cytoplasm Stats - One Way ANOVA significance testing, echo = FALSE}
+results <- aov(`Mean` ~ Condition,
+  data = cyto_mean
+)
+
+summary(results)
+
+comp <- rbind("DMSO - DAPT" = c(-1,1,0,0),
+              "DMSO - PMA" = c(-1,0,1,0),
+              "DMSO - PMA+DAPT" = c(-1,0,0,1),
+              "PMA - PMA+DAPT" = c(0,0,-1,1))
+
+summary(glht(results, linfct= mcp(Condition = comp)),
+        test = adjusted("single-step"))
+
+
+```
+
+
+
+
+
+
+
+
+#Stats for whole cell
+
+#Nuclear/Whole Cell Means
+
+```{r, Whole Cell Stats assumption testing, echo = FALSE}
+#creating the means of the groups in each week and testing that way 
+wc_mean <-wholecell %>% group_by(Week, Condition) %>%
+  summarise(Mean = mean(`Nuclear / Whole Cell`),
+            .groups = "drop")
+
+model <- lm(wc_mean$`Mean` ~ wc_mean$Condition)
+results <- shapiro.test(rstandard(model)) 
+results
+
+test <- subset(wc_mean, Condition == "DMSO")
+qqnorm(test$`Mean`, pch = 1)
+qqline(test$`Mean`)
+
+test <- subset(wc_mean, Condition == "DAPT")
+qqnorm(test$`Mean`, pch = 1)
+qqline(test$`Mean`)
+
+test <- subset(wc_mean, Condition == "PMA")
+qqnorm(test$`Mean`, pch = 1)
+qqline(test$`Mean`)
+
+test <- subset(wc_mean, Condition == "PMA+DAPT")
+qqnorm(test$`Mean`, pch = 1)
+qqline(test$`Mean`)
+
+significant <- results$p.value >= 0.05
+print("Meets Normality?")
+print(significant)
+
+#testing for heterogeneity of variance
+wc_mean$Condition <- factor(wc_mean$Condition)
+results <- leveneTest(wc_mean$`Mean` ~ wc_mean$Condition, center = mean) 
+results 
+
+significant <- results$`Pr(>F)` >= 0.05
+print("Meets Homogeneity of Variance?")
+print(significant[1])
+```
+
+
+```{r, Whole Cell Stats - One Way ANOVA, echo = FALSE}
+results <- aov(`Mean` ~ Condition,
+  data = wc_mean
+)
+
+summary(results)
+
+comp <- rbind("DMSO - DAPT" = c(-1,1,0,0),
+              "DMSO - PMA" = c(-1,0,1,0),
+              "DMSO - PMA+DAPT" = c(-1,0,0,1),
+              "PMA - PMA+DAPT" = c(0,0,-1,1))
+
+summary(glht(results, linfct= mcp(Condition = comp)),
+        test = adjusted("single-step"))
+
+
+```
