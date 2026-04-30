@@ -1,0 +1,165 @@
+---
+title: "Supplemental Figure 1"
+author: "Kate McDaniel"
+output:
+  word_document: default
+  pdf_document:
+    fig_width: 6
+    fig_height: 8
+
+editor_options:
+  chunk_output_type: console
+always_allow_html: true
+---
+
+```{r setup, include=FALSE}
+#setwd("")
+
+library(readxl)
+library(plotly)
+library(tidyverse)
+library(dplyr)
+library(rstatix)
+library(car)
+
+```
+
+# Setting up the data for analysis
+
+```{r, pulling in files, echo = FALSE}
+#pulling in files
+file.name <- c("260317 Updated Quant.xlsx")
+sheet.name <- c(paste0("n=", (rep(1:4))))
+
+data <- list()
+
+for (a in sheet.name) {
+    data <- c(data, list(read_excel(file.name, sheet = a, col_names = TRUE, trim_ws = TRUE)))
+}
+
+names(data) <- sheet.name
+
+for (a in names(data)){
+  data[[a]][,"Week"] <- as.numeric(substr(a,3,3))
+  data[[a]] <- data[[a]][,c(6,1:5)]
+}
+
+#head(data)
+
+```
+
+The code then normalizes the raw data to DMSO to get the values for analysis.
+
+```{r, normalizing, echo=FALSE}
+#normalizing to DMSO 
+for (c in 1:length(data)){
+  for (d in 1:nrow(data[[c]])){
+    if (d%%2 == 0){
+      data[[c]][d,"NormalizedToDMSO"] <- data[[c]][d,"Fragment"] / data[[c]][(d-1),"Fragment"]
+      data[[c]][d,"NormalizedToDMSO"] <- data[[c]][d,"NormalizedToDMSO"] * 100
+    }
+  }
+}
+
+#setting the DMSO values to 1 (come out as NA in the former)
+data <- lapply(data, function(x) replace(x, is.na(x), 100))
+
+#combining into one big
+combined <- Reduce(function(x,y) rbind(x,y), data)
+
+#head(combined)
+```
+
+I then subset by fragment size - to do the analyses separately. I further subset by the membrane and soluble nucleus data. 
+
+```{r, subsetting by fragment size, echo = FALSE}
+CTF <- subset(combined, Size == "CTF" & Construct == "NL3")
+
+#head(CTF)
+
+CTF.membrane <- subset(CTF, Fraction == "Membrane")
+CTF.solnuc <- subset(CTF, Fraction == "Soluble.Nuc")
+
+#head(CTF.membrane)
+#head(CTF.solnuc)
+```
+
+# Assumption Testing
+
+## C-Terminal Fragment
+
+#### 1 - Membrane
+
+```{r, CTF Membrane Assumptions, echo = FALSE}
+model <- lm(CTF.membrane$NormalizedToDMSO ~ CTF.membrane$Condition)
+results <- shapiro.test(rstandard(model)) 
+results
+
+significant <- results$p.value >= 0.05
+print("Meets Normality?")
+print(significant)
+
+#testing for heterogeneity of variance
+CTF.membrane$Condition <- factor(CTF.membrane$Condition)
+results <- leveneTest(CTF.membrane$NormalizedToDMSO ~ CTF.membrane$Condition, center = mean) 
+results 
+
+significant <- results$`Pr(>F)` >= 0.05
+print("Meets Homogeneity of Variance?")
+print(significant[1])
+```
+
+
+```{r, CTF Membrane Significance testing, echo = FALSE}
+results <- wilcox.test(CTF.membrane$NormalizedToDMSO ~ CTF.membrane$Condition, 
+            alternative = c("two.sided"),
+            exact = FALSE)
+results
+
+significant <- results$p.value < 0.05
+
+print("p-value = ")
+print(results$p.value)
+
+print("significant?")
+print(significant)
+
+```
+
+
+#### 2 - Soluble nucleus
+
+```{r, CTF Soluble Nucleus Assumptions, echo = FALSE}
+model <- lm(CTF.solnuc$NormalizedToDMSO ~ CTF.solnuc$Condition)
+results <- shapiro.test(rstandard(model)) 
+results
+
+significant <- results$p.value >= 0.05
+print("Meets Normality?")
+print(significant)
+
+#testing for heterogeneity of variance
+CTF.solnuc$Condition <- factor(CTF.solnuc$Condition)
+results <- leveneTest(CTF.solnuc$NormalizedToDMSO ~ CTF.solnuc$Condition, center = mean) 
+results 
+
+significant <- results$`Pr(>F)` >= 0.05
+print("Meets Homogeneity of Variance?")
+print(significant[1])
+```
+
+
+```{r, echo = FALSE}
+results <- wilcox.test(CTF.solnuc$NormalizedToDMSO ~ CTF.solnuc$Condition, center = mean, 
+            alternative = c("two.sided"),
+            exact = FALSE)
+results
+
+significant <- results$p.value < 0.05
+
+print("p-value = ")
+print(results$p.value)
+
+print("significant?")
+print(significant)
+```
