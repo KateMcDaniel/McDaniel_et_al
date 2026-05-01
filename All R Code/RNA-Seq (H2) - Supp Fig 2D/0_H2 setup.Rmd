@@ -1,0 +1,122 @@
+---
+title: "0_H2 Setup"
+author: "Kate McDaniel"
+date: "`r Sys.Date()`"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+Work based off of DESeq2 vingette, and the DEtutorial on the nextflow nf-core/rnaseq site https://nf-co.re/rnaseq/3.22.1/docs/usage/differential_expression_analysis/de_rstudio#
+
+###Pulling in data and getting it organized
+
+```{r, pulling in appropriate file CAN CHANGE, include = FALSE}
+path <- c("H2_final_2/star_salmon/deseq2_qc/deseq2.dds.RData")
+celltype <- "H2"
+contrast_list <- c("NT", "NL3FL", "NL3dICD", "NL3ICD")
+contrast <- "NT"
+
+#number of conditions
+number <- 4
+```
+
+```{r, loading packages and setting directory to save to, include = FALSE}
+library("DESeq2")
+library("pheatmap")
+library("RColorBrewer")
+library("ggrepel")
+library("ashr")
+library("writexl")
+library("biomaRt")
+library("org.Hs.eg.db")
+library("clusterProfiler")
+library("tidyverse")
+library("kableExtra")
+library("export")
+library("webshot2")
+library("officer")
+library("msigdbr")
+library("DOSE")
+library("magick")
+library("beepr")
+
+
+basewd <- "/KM_Pipeline"
+dir.create(paste0(basewd,"/",celltype,"/",contrast))
+setwd(paste0(basewd,"/",celltype,"/",contrast))
+```
+
+```{r, call script to set up dds according to contrast, echo = FALSE}
+#review this output to make sure it's okay
+source(paste0(basewd,"/",celltype,"/R files", "/A_Set up dds_H2.R"))
+
+#want to use dds_final out of this if you need to do anything
+```
+
+```{r, call script to do visualizations - PCA and distance, echo = FALSE}
+source(paste0(basewd,"/",celltype,"/R files", "/B_Vis for overall comparisons_H2.R"))
+```
+
+```{r, create main tables for each comparison, echo = FALSE}
+#normalized counts, results, and results with lfc shrink (each tab has a comparison)
+source(paste0(basewd,"/",celltype,"/R files", "/C_Main Tables_H2.R"))
+
+```
+
+
+```{r, each comparison}
+#change this for the files for the specific comparisons
+want = "NL3FL"
+  
+  
+#setting up directory
+dir.create(paste0(basewd,"/",celltype,"/",contrast, "/", "vs. ", want))
+setwd(paste0(basewd,"/",celltype,"/",contrast, "/", "vs. ", want))
+
+
+#ORA and GSEA prep - getting all the lists
+source(paste0(basewd,"/",celltype,"/R files", "/E_ORA and GSEA Prep_H2.R"))
+
+#running ORA for GO and KEGG pathways 
+source(paste0(basewd,"/",celltype,"/R files", "/F_ORA_H2.R"))
+
+
+#GSEA set up and run
+source(paste0(basewd,"/",celltype,"/R files", "/I_GSEA Set up and Run_H2.R"))
+
+
+#DOSE set up, ORA, and tables
+source(paste0(basewd,"/",celltype,"/R files", "/K_DOSE Set up_H2.R"))
+source(paste0(basewd,"/",celltype,"/R files", "/L_DOSE ORA_H2.R"))
+
+
+#DOSE GSEA set up, GSEA, and tables
+source(paste0(basewd,"/",celltype,"/R files", "/N_DOSE GSEA Set up and Run_H2.R"))
+
+##Can do further visualizations from here
+
+
+```
+
+
+```{r, tables - only have to run once per comparison}
+#table of top 15 most significant genes
+source(paste0(basewd,"/",celltype,"/R files", "/D_15 Sig Table_H2.R"))
+
+#get tables and data for ORA pathways
+source(paste0(basewd,"/",celltype,"/R files", "/G_ORA GO Tables_H2.R"))
+source(paste0(basewd,"/",celltype,"/R files", "/H_ORA KEGG Tables_H2.R"))
+
+
+#GSEA tables
+source(paste0(basewd,"/",celltype,"/R files", "/J_GSEA Tables_H2.R"))
+
+##DOSE
+source(paste0(basewd,"/",celltype,"/R files", "/M_DOSE ORA Tables_H2.R"))
+source(paste0(basewd,"/",celltype,"/R files", "/O_DOSE GSEA Tables_H2.R"))
+
+```
+
+
+
+
